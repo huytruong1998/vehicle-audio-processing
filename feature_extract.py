@@ -51,10 +51,14 @@ class SoundDataSet(Dataset):
 
     def __plot_spectrogram__(self, index):
         signal, sr, label = self.__getitem__(index)
-        D = librosa.stft(signal)
-        S_db = librosa.amplitude_to_db(np.abs(D), ref=np.max)
-        plt.figure(figsize=(10, 6))
-        librosa.display.specshow(S_db, sr=sr, x_axis='time', y_axis='hz', cmap='viridis')
+        nfft = self.n_fft
+        win_size = nfft
+        hop_size = nfft//2
+        librosa_spectrogram = librosa.stft(signal,n_fft=nfft, hop_length=hop_size, win_length=win_size)
+        librosa_power_spectrogram = librosa.amplitude_to_db(librosa_spectrogram, ref=np.max)
+
+        plt.figure()
+        librosa.display.specshow(librosa_power_spectrogram, sr=sr, x_axis='time', y_axis='hz', cmap='viridis')
         plt.colorbar(format='%+2.0f dB')
         plt.title('Spectrogram')
         plt.xlabel('Time (s)')
