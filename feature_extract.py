@@ -6,14 +6,14 @@ import sys
 import numpy as np
 import sounddevice as sd
 import matplotlib.pyplot as plt
-
+import torchaudio
 def getFilePaths(path):
     return [path +'/'+ file for file in os.listdir(path)]
 
 
 
 class SoundDataSet(Dataset):
-    def __init__(self, file_paths, labels,categories, sr,n_fft,hop_length, n_mfcc, device, duration=5):
+    def __init__(self, file_paths, labels,categories, device, sr=44100,n_fft=2048,hop_length=512, n_mfcc=13,n_mels=128, duration=5):
         self.file_paths = file_paths
         self.labels = labels
         
@@ -24,18 +24,14 @@ class SoundDataSet(Dataset):
         self.hop_length = hop_length
         self.n_mfcc= n_mfcc
         self.device = device
+        self.n_mels = n_mels
 
-        self.c2i={}
-        self.i2c={}
         self.categories = categories
-        self.images= []
-        for i, category in enumerate(self.categories):
-            self.c2i[category]=i
-            self.i2c[i]=category
+        self.melspectrogram_dbs= []
         for index in range(len(file_paths)):
-            log_ms = self.__get_melspectrogram_db__(index)
-            image = self.__melspec_to_image__(log_ms)
-            self.images.append(image)
+            mel_spec_db = self.__get_melspectrogram_db__(index)
+            mel_spec_db = torch.tensor(mel_spec_db, dtype=torch.float32).unsqueeze(0)
+            self.melspectrogram_dbs.append(mel_spec_db)
 
 
          
@@ -43,21 +39,24 @@ class SoundDataSet(Dataset):
         return len(self.file_paths)
 
     def __get_item__(self, index):
-        return self.images[index], self.labels[index]
+        return self.melspectrogram_dbs[index], self.labels[index]
     
     def __load_audio__(self, index):
         audio_sample_path = self.file_paths[index]
         signal, sr = librosa.load(audio_sample_path, sr=None)
+        y, x = torchaudio.load(audio_sample_path)
         # Get the first 5s (duration) of the audio
         signal = self.__get_audio_duration__(signal, sr)
         signal, sr = self.__resample_audio__(signal, sr)
         return signal, sr
+
 
     def __get_audio_duration__(self, signal,sr):
         if signal.shape[0]<self.duration*sr:
             signal=np.pad(signal,int(np.ceil((self.duration*sr-signal.shape[0])/2)),mode='reflect')
         else:
             signal=signal[:self.duration*sr]
+        
         return signal
 
     def __resample_audio__(self, signal, sr):
@@ -68,22 +67,12 @@ class SoundDataSet(Dataset):
 
     def __get_melspectrogram_db__(self, index):
         signal, sr = self.__load_audio__(index)
-        ms = librosa.feature.melspectrogram(y=signal, sr=sr)
-        log_ms = librosa.power_to_db(ms, ref=np.max)
-        return log_ms
-    
-    def __melspec_to_image__(self,log_ms):
-        melspec_norm = self.__melspec_normalization__(log_ms)
-        melspec_min, melspec_max = melspec_norm.min(), melspec_norm.max()
-        melspec_scaled = 255 * (melspec_norm - melspec_min) / (melspec_max - melspec_min)
-        melspec_scaled = melspec_scaled.astype(np.uint8)
-        return melspec_scaled
-    
-    def __melspec_normalization__(self,log_ms):
-        mean = log_ms.mean()
-        std = log_ms.std()
-        melspec_norm = (log_ms - mean) / (std)
-        return melspec_norm
+        ms = librosa.feature.melspectrogram(y=signal, sr=sr,fmax=sr// 2,n_mels=self.n_mels)
+        mel_spec_db = librosa.power_to_db(ms, ref=np.max)
+        return self.__melspec_normalization__(mel_spec_db)
+
+    def __melspec_normalization__(self,mel_spec_db):
+        return (mel_spec_db - mel_spec_db.min()) / (mel_spec_db.max() - mel_spec_db.min())
 
     def __plot_mfcc__(self, index):
         signal, sr = self.__load_audio__(index)
@@ -116,7 +105,15 @@ class SoundDataSet(Dataset):
         plt.tight_layout()
         plt.show()
 
-    
+    def __play_audio__(self, index):
+        signal, sr = self.__load_audio__(index)
+        plt.figure()
+        plt.plot(signal)
+        plt.show()
+        sd.play(signal)
+        sd.wait()
+        
+
 
 
 if __name__ == "__main__":
@@ -129,11 +126,6 @@ if __name__ == "__main__":
         audio_labels += [i]*len(paths)
    
 
-    SAMPLE_RATE = 44100
-    n_fft=2048
-    hop_length = 512
-    n_mfcc = 13
-
     if torch.cuda.is_available():
         device = "cuda"
     else:
@@ -141,6 +133,7 @@ if __name__ == "__main__":
     print(f"Using device {device}")
 
 
-    audio_data = SoundDataSet(file_paths=audio_paths, labels=audio_labels,categories=categories, sr=SAMPLE_RATE,n_fft=n_fft, hop_length=hop_length, n_mfcc=n_mfcc, device=device)
-    audio_data.__plot_spectrogram__(40)
-    audio_data.__plot_mfcc__(40)
+    audio_data = SoundDataSet(file_paths=audio_paths, labels=audio_labels,categories=categories, device=device)
+    audio_data.__plot_spectrogram__(26)
+    audio_data.__plot_mfcc__(26)
+    # audio_data.__play_audio__(26)
