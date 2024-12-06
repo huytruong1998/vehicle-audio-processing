@@ -6,4 +6,4 @@ audio process bus and tram
 # https://bamblebam.medium.com/audio-classification-and-regression-using-pytorch-48db77b3a5ec
 CNN is a type of deep learning neural network that classify image really well.
 Can it be use for sound? Yes, We just need to make sound look like an image and shape them like an image and feed it to CNN 
-Mel Spectrogram is a 2D 
+Mel Spectrogram is a 2D illustration of audio
