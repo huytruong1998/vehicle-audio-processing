@@ -13,7 +13,7 @@ def getFilePaths(path):
 
 
 class SoundDataSet(Dataset):
-    def __init__(self, file_paths, labels,categories, device, sr=44100,n_fft=2048,hop_length=512, n_mfcc=13,n_mels=128, duration=5):
+    def __init__(self, file_paths, labels, device, sr=44100,n_fft=1024,hop_length=512, n_mfcc=13,n_mels=128, duration=5):
         self.file_paths = file_paths
         self.labels = labels
         
@@ -26,7 +26,6 @@ class SoundDataSet(Dataset):
         self.device = device
         self.n_mels = n_mels
 
-        self.categories = categories
         self.melspectrogram_dbs= []
         for index in range(len(file_paths)):
             mel_spec_db = self.__get_melspectrogram_db__(index)
@@ -72,6 +71,7 @@ class SoundDataSet(Dataset):
         return self.__melspec_normalization__(mel_spec_db)
 
     def __melspec_normalization__(self,mel_spec_db):
+        # Normalize to [0, 1]
         return (mel_spec_db - mel_spec_db.min()) / (mel_spec_db.max() - mel_spec_db.min())
 
     def __plot_mfcc__(self, index):
@@ -119,11 +119,14 @@ class SoundDataSet(Dataset):
 if __name__ == "__main__":
     audio_paths = []
     audio_labels = []
-    categories = ['bus', 'tram']
-    for i, category in enumerate(categories):
-        paths = getFilePaths('dataset/' + category)
+    categories = {
+        0: "bus",
+        1: "tram"
+    }
+    for key, value in categories.items():
+        paths = getFilePaths('dataset/' + value)
         audio_paths += paths
-        audio_labels += [i]*len(paths)
+        audio_labels += [key]*len(paths)
    
 
     if torch.cuda.is_available():
@@ -133,7 +136,7 @@ if __name__ == "__main__":
     print(f"Using device {device}")
 
 
-    audio_data = SoundDataSet(file_paths=audio_paths, labels=audio_labels,categories=categories, device=device)
+    audio_data = SoundDataSet(file_paths=audio_paths, labels=audio_labels, device=device)
     audio_data.__plot_spectrogram__(26)
     audio_data.__plot_mfcc__(26)
     # audio_data.__play_audio__(26)
