@@ -1,15 +1,10 @@
 import librosa
-import os
 from torch.utils.data import Dataset
 import torch
-import sys
 import numpy as np
 import sounddevice as sd
 import matplotlib.pyplot as plt
 import torchaudio
-def getFilePaths(path):
-    return [path +'/'+ file for file in os.listdir(path)]
-
 
 
 class SoundDataSet(Dataset):
@@ -17,7 +12,6 @@ class SoundDataSet(Dataset):
         self.file_paths = file_paths
         self.labels = labels
         
-
         self.sampled_sr = sr
         self.n_fft = n_fft
         self.duration = duration
@@ -31,7 +25,6 @@ class SoundDataSet(Dataset):
             mel_spec_db = self.__get_melspectrogram_db__(index)
             mel_spec_db = torch.tensor(mel_spec_db, dtype=torch.float32).unsqueeze(0)
             self.melspectrogram_dbs.append(mel_spec_db)
-
 
          
     def __len__(self):
@@ -48,7 +41,6 @@ class SoundDataSet(Dataset):
         signal = self.__get_audio_duration__(signal, sr)
         signal, sr = self.__resample_audio__(signal, sr)
         return signal, sr
-
 
     def __get_audio_duration__(self, signal,sr):
         if signal.shape[0]<self.duration*sr:
@@ -87,7 +79,6 @@ class SoundDataSet(Dataset):
         plt.tight_layout()
         plt.show()
         
-
     def __plot_spectrogram__(self, index):
         signal, sr = self.__load_audio__(index)
         nfft = self.n_fft
@@ -115,28 +106,3 @@ class SoundDataSet(Dataset):
         
 
 
-
-if __name__ == "__main__":
-    audio_paths = []
-    audio_labels = []
-    categories = {
-        0: "bus",
-        1: "tram"
-    }
-    for key, value in categories.items():
-        paths = getFilePaths('dataset/' + value)
-        audio_paths += paths
-        audio_labels += [key]*len(paths)
-   
-
-    if torch.cuda.is_available():
-        device = "cuda"
-    else:
-        device = "cpu"
-    print(f"Using device {device}")
-
-
-    audio_data = SoundDataSet(file_paths=audio_paths, labels=audio_labels, device=device)
-    audio_data.__plot_spectrogram__(26)
-    audio_data.__plot_mfcc__(26)
-    # audio_data.__play_audio__(26)
