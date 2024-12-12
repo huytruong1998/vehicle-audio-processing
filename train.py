@@ -63,7 +63,9 @@ if __name__ == "__main__":
         device = "cuda"
     else:
         device = "cpu"
+
     print(f"Using device {device}")
+    print(f'number of samples: {len(audio_paths)} ')
 
     audio_data = SoundDataSet(file_paths=audio_paths, labels=audio_labels, device=device)
     #audio_data.__plot_spectrogram__(26)
@@ -71,7 +73,9 @@ if __name__ == "__main__":
     #audio_data.__play_audio__(26)
 
     model = CNNNetwork()
-    loss_func, optimizer = loss_optimizer.torch_loss_and_optimizer(model=model, lr= LEARNING_RATE)
+    loss_func, optimizer = loss_optimizer.torch_loss_and_optimizer(model=model, learning_rate= LEARNING_RATE)
+    
+    """
     train_data_loader = create_data_loader(audio_data, BATCH_SIZE)
 
     loss = train(model, train_data_loader,loss_func, optimizer, device, EPOCHS)
@@ -79,4 +83,4 @@ if __name__ == "__main__":
     if False:
         torch.save(model.state_dict(), "vehicle_audio_processing_model.pth")
         print("Trained feed forward net saved at vehicle_audio_processing_model.pth")
-
+    """
