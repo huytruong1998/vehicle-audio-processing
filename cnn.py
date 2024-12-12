@@ -4,10 +4,11 @@ from torchsummary import summary
 
 
 class CNNNetwork(nn.Module):
-    def __init__(self, time_frames, n_mels=128):  # Accepts time_frames and n_mels
+    #def __init__(self, time_frames, n_mels=128):  # Accepts time_frames and n_mels
+    def __init__(self, n_mels=128):  # Accepts time_frames and n_mels
         super().__init__()
         self.n_mels = n_mels
-        self.time_frames = time_frames
+        #self.time_frames = time_frames
 
         # Convolutional Layers
         self.conv1 = nn.Sequential(
@@ -35,21 +36,27 @@ class CNNNetwork(nn.Module):
             nn.MaxPool2d(kernel_size=2)
         )
 
+        self.flatten = nn.Flatten()
+
+        """
         # Calculate the dimensions of the feature map after convolutional layers
         final_height = self._calc_final_dim(self.n_mels, num_pooling_layers=4)
         final_width = self._calc_final_dim(self.time_frames, num_pooling_layers=4)
 
         # Fully Connected Layers
-        self.flatten = nn.Flatten()
+        
+       
         self.linear1 = nn.Sequential(
             nn.Linear(in_features=128 * final_height * final_width, out_features=128),
             nn.ReLU(),
             nn.Dropout(0.5)  # Regularization
         )
-        self.linear2 = nn.Linear(in_features=128, out_features=1)
+        """
+        print("self.flatten shape",self.flatten.__sizeof__())
+        self.linear2 = nn.Linear(in_features=128 *208, out_features=2)
 
         # Output Layer
-        self.output = nn.Sigmoid()
+        self.output = nn.Softmax(dim=1)
 
     def _calc_final_dim(self, input_dim, num_pooling_layers):
         """
@@ -66,10 +73,10 @@ class CNNNetwork(nn.Module):
         x = self.conv3(x)
         x = self.conv4(x)
         x = self.flatten(x)  # Flatten feature maps into a 1D vector
-        x = self.linear1(x)  # Dense hidden layer
+        #x = self.linear1(x)  # Dense hidden layer
         logits = self.linear2(x)  # Final linear layer
         output = self.output(logits)  # Apply sigmoid for binary classification
         return output
 
-model=CNNNetwork().cuda()
-summary(model,(1,128,430))
+#model=CNNNetwork().cuda()
+#summary(model,(1,128,430))

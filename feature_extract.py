@@ -30,8 +30,8 @@ class SoundDataSet(Dataset):
     def __len__(self):
         return len(self.file_paths)
 
-    def __get_item__(self, index):
-        return self.melspectrogram_dbs[index], self.labels[index]
+    def __getitem__(self, index):
+        return self.melspectrogram_dbs[index], self.labels[index], self.file_paths[index]
     
     def __load_audio__(self, index):
         audio_sample_path = self.file_paths[index]
