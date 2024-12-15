@@ -1,3 +1,4 @@
 .ipynb_checkpoints
 Spectogram_images/
 vehicle-audio-processing-model.keras
+.DS_Store
