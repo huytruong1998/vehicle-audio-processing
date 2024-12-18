@@ -1,12 +1,15 @@
 import numpy as np
 import librosa.display, os
-import matplotlib.pyplot as plt
-import tensorflow as tf
 import time
-
+from torch import nn, optim
+import torch
+from torchsummary import summary
+import os
+from PIL import Image
+import matplotlib.pyplot as plt
+from torch.utils.data import DataLoader, TensorDataset
 from sklearn.model_selection import train_test_split
-from keras import models
-from keras.layers import Conv2D, MaxPooling2D, Flatten, Dense
+from torchvision import transforms,datasets
 
 
 SPECTOGRAM_SHOW = False
@@ -15,6 +18,8 @@ MEL_SPECTOGRAM = True
 CREATE_IMAGES = True
 SAVE_MODEL = True
 
+device = "cuda" if torch.cuda.is_available() else "cpu"
+print(f"Using device {device}")
 
 ##Power Spectogram Functions
 def create_power_spectrogram(audio_file, image_file):
@@ -74,7 +79,7 @@ def process_audio_duration(signal, sr, target_duration=5.0):
     # If the audio is shorter, pad with zeros (silence) to the target duration
     elif current_samples < target_samples:
         pad_length = target_samples - current_samples
-        signal = np.pad(y, (0, pad_length), mode='constant')
+        signal = np.pad(signal, (0, pad_length), mode='constant')
     
     return signal, sr
 
@@ -91,9 +96,9 @@ def load_audio(audio_file):
     Transforms Audio file to Data and SR, and Returns both of them
     """
     data, sr = librosa.load(audio_file)
-    data, sr = resample_audio(y, sr)
+    data, sr = resample_audio(data, sr)
     # TO DO: should we add this?  reduce accuracy but looks better to compare spectrogram
-    #y, sr = process_audio_duration(y,sr)
+    data, sr = process_audio_duration(data,sr)
     data = librosa.util.normalize(data)
     return data, sr
     
@@ -170,18 +175,23 @@ def create_mfcc(audio_file):
     return mfccs
 
 
-def load_images_from_path(path, label):
-    """
-    Converts Images to NumPy arrays, creates Labels based on their positon and Returns
-    """
-    images = []
-    labels = []
+def load_images_from_path(path):
+    #transforms.ToTensor() automatically converts and normalizes pixel values to [0.0, 1.0]
+    transformation = transforms.Compose([
+        transforms.Resize((224, 224)),
+        # transform to tensors
+        transforms.ToTensor(),
+        # Normalize the pixel values (in R, G, and B channels)
+        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+    ])
 
-    for file in os.listdir(path):
-        images.append(tf.keras.utils.img_to_array(tf.keras.utils.load_img(os.path.join(path, file), target_size=(224, 224, 3))))
-        labels.append((label))
-        
-    return images, labels
+    # Load all of the images, transforming them
+    full_dataset = datasets.ImageFolder(
+        root=path,
+        transform=transformation
+    )
+
+    return full_dataset
 
 
 def show_images(images):
@@ -253,104 +263,185 @@ if CREATE_IMAGES:
         create_power_spec_pngs_from_wavs('./dataset/bus', './Spectogram_images/bus')
         create_power_spec_pngs_from_wavs('./dataset/tram', './Spectogram_images/tram')
 
+full_dataset = load_images_from_path('./Spectogram_images')
+##Spliting the data to use 70% training and 30% testing
+train_size = int(0.7 * len(full_dataset))
+test_size = len(full_dataset) - train_size
 
-#Creating images and labels
-x = []
-y = []
+train_dataset, test_dataset = torch.utils.data.random_split(full_dataset, [train_size, test_size])
 
-images, labels = load_images_from_path('./Spectogram_images/bus', 0)
-x += images
-y += labels
-show_images(images)
-
-images, labels = load_images_from_path('./Spectogram_images/tram', 1)
-x += images
-y += labels
-show_images(images)
-
-
-#Spliting the data to Train and Test data
-x_train, x_test, y_train, y_test = train_test_split(x, y, stratify=y, test_size=0.3, random_state=0)
-
-x_train_norm = np.array(x_train) / 255
-x_test_norm = np.array(x_test) / 255
-
-y_train_encoded =  tf.keras.utils.to_categorical(y_train)
-y_test_encoded =  tf.keras.utils.to_categorical(y_test)
+train_loader = torch.utils.data.DataLoader(
+        train_dataset,
+        batch_size=32,
+        shuffle=True
+    )
+    
+# define a loader for the testing data we can iterate through in 32-image batches
+test_loader = torch.utils.data.DataLoader(
+    test_dataset,
+    batch_size=32,
+    shuffle=False
+)
 
 
-#Creating the model
-model = models.Sequential()
-model.add(Conv2D(32, (3, 3), activation='relu', input_shape=(224, 224, 3)))
-model.add(MaxPooling2D(2, 2))
-model.add(Conv2D(128, (3, 3), activation='relu'))
-model.add(MaxPooling2D(2, 2))
-model.add(Conv2D(128, (3, 3), activation='relu'))
-model.add(MaxPooling2D(2, 2))
-model.add(Conv2D(128, (3, 3), activation='relu'))
-model.add(MaxPooling2D(2, 2))
-model.add(Flatten())
-model.add(Dense(1024, activation='relu'))
-model.add(Dense(2, activation='softmax'))
-model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
-model.summary()
+
+print(f'Training set size: {len(train_loader.dataset)}')
+print(f'Testing set size: {len(test_loader.dataset)}')
 
 
-#Training the model
-start_time = time.time()
-hist = model.fit(x_train_norm, y_train_encoded, validation_data=(x_test_norm, y_test_encoded), batch_size=10, epochs=10)
-end_time = time.time()
+#Creating the CNN model
+class CNNModel(nn.Module):
+    def __init__(self):
+        super(CNNModel, self).__init__()
+        self.conv1 = nn.Sequential(
+            nn.Conv2d(in_channels=3, out_channels=32, kernel_size=3, stride=1, padding=1), #(224+2×1−3)/1 +1 = (32, 224,224)
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2)  # Reduces dimensions by half (32, 112,112)
+        )
+        self.conv2 = nn.Sequential(
+            nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1), # (112+2×1−3)/1 +1 = (64, 112,112)
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2)  # Reduces dimensions by half (64, 56,56)
+        )
+        self.conv3 = nn.Sequential(
+            nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=1, padding=1), # (56+2×1−3)/1 +1 = (128, 56,56)
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2)  # Reduces dimensions by half (128, 28,28)
+        )
+        self.conv4 = nn.Sequential(
+            nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, stride=1, padding=1), # (28+2×1−3)/1 +1 = (128, 28,28)
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2)  # Reduces dimensions by half (128, 14,14)
+        )
+        self.flatten = nn.Flatten()
+        self.fc1 = nn.Linear(in_features=128*14*14, out_features=1024)
+        self.dropout = nn.Dropout(p=0.2)
+        # dropout: Reduces overfitting, Improves generalization.
+        self.fc2 = nn.Linear(in_features=1024, out_features=1)
+        self.output = nn.Sigmoid()
 
-total_time = end_time - start_time
-print(f"Total Training Time: {total_time:.2f} seconds")
-
-
-#Training and Validation history
-acc = hist.history['accuracy']
-val_acc = hist.history['val_accuracy']
-epochs = range(1, len(acc) + 1)
-loss = hist.history['loss']
-
-plt.plot(epochs, loss, '--', label='Loss')
-plt.plot(epochs, acc, '-', label='Training Accuracy')
-plt.plot(epochs, val_acc, ':', label='Validation Accuracy')
-plt.title('Training and Validation Accuracy')
-plt.xlabel('Epoch')
-plt.ylabel('Accuracy')
-plt.legend(loc='lower left')
-plt.plot()
-
-
-#Saving the model
-if SAVE_MODEL:
-    model_name = 'vehicle-audio-processing-model'
-    model_path = model_name + '.keras'
-    model.save(model_path)
-    print(f'Model is Saved to {model_path}')
-
-
-#Creating Test Spectogram images
-if CREATE_IMAGES:
-    if MEL_SPECTOGRAM:
-        create_mel_spect_pngs_from_wavs('./test_audio', './Spectogram_images/test')
-    else:
-        create_power_spec_pngs_from_wavs('./test_audio', './Spectogram_images/test')
+    def forward(self, input_data):
+        x = self.conv1(input_data)
+        x = self.conv2(x)
+        x = self.conv3(x)
+        x = self.conv4(x)
+        x = self.flatten(x)  # Flatten feature maps into a 1D vector
+        x = self.fc1(x)
+        x = self.dropout(x)
+        x = self.fc2(x) 
+        x = self.output(x)  # Apply Sigmoid for binary classification
         
-#You can change the name of the test audio with another test data name
-test_audio_name = '664055__juusooo__bus-2'
-test_audio_path = './Spectogram_images/test/' + test_audio_name + '.png'
-x = tf.keras.utils.load_img(test_audio_path, target_size=(224, 224))
+        return x
+model=CNNModel().to(device)
+summary(model,(3,224,224))
 
-plt.xticks([])
-plt.yticks([])
-plt.imshow(x)
+#Create Training single epoch function
+def train(model, device, train_loader, optimizer, epoch):
+    model.train()
+    train_loss = 0
+    correct = 0
+    total_samples = 0
+    print("Epoch:", epoch)
+    for batch_idx, (data, target) in enumerate(train_loader):
+        # Converted to float32 with shape [batch_size, 1]
+        data, target = data.to(device), target.to(device).float().unsqueeze(1)
+        
+        optimizer.zero_grad()
+        
+        output = model(data)
+        
+        loss = loss_criteria(output, target)
 
-#Testing 
-x = tf.keras.utils.img_to_array(x)
-x = np.expand_dims(x, axis=0)
+        # Keep a running total
+        train_loss += loss.item()
 
-predictions = model.predict(x)
-class_labels = ['bus', 'tram']
+        # Backpropagate
+        loss.backward()
+        optimizer.step()
 
-for i, label in enumerate(class_labels):
-    print(f'{label}: {predictions[0][i]}')
+        predicted = (output >= 0.5).float()
+        correct += torch.sum(target == predicted).item()
+        total_samples += target.size(0)
+        
+        # Print metrics so we see some progress
+        print('\tTraining batch {} Loss: {:.6f}'.format(batch_idx + 1, loss.item()))
+    # return accuracy for training
+    accuracy = 100. * correct / total_samples
+    # return average loss for the epoch
+    avg_loss = train_loss / (batch_idx+1)
+    print('Training set: Average loss: {:.6f}'.format(avg_loss))
+    return avg_loss,accuracy
+
+#Create Testing single epoch function
+def test(model, device, test_loader):
+    model.eval()
+    test_loss = 0
+    correct = 0
+    with torch.no_grad():
+        batch_count = 0
+        for data, target in test_loader:
+            batch_count += 1
+            data, target = data.to(device), target.to(device).float().unsqueeze(1)
+            
+            output = model(data)
+            
+            test_loss += loss_criteria(output, target).item()
+            
+            predicted = (output >= 0.5).float()
+            correct += torch.sum(target == predicted).item()
+
+    # Calculate the average loss and total accuracy for this epoch
+    avg_loss = test_loss / batch_count
+    accuracy = 100. * correct / len(test_loader.dataset)
+    print('Validation set: Average loss: {:.6f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
+        avg_loss, correct, len(test_loader.dataset),
+        accuracy))
+    
+    # return average loss for the epoch
+    return avg_loss,accuracy
+
+# Use an "Adam" optimizer to adjust weights
+optimizer = optim.Adam(model.parameters(), lr=0.001)
+
+# Specify the loss criteria (use BCE here for Binary Classification)
+loss_criteria = nn.BCELoss()
+
+# Track metrics in these arrays
+epoch_nums = []
+epoch_loss = []
+epoch_validation_loss = []
+
+epoch_training_accuracy = []
+epoch_test_accuracy = []
+
+epochs = 10
+print('Training on', device)
+for epoch in range(1, epochs + 1):
+        train_loss, train_accuracy = train(model, device, train_loader, optimizer, epoch)
+        test_loss, test_accuracy = test(model, device, test_loader)
+        epoch_nums.append(epoch)
+        epoch_loss.append(train_loss)
+        epoch_validation_loss.append(test_loss)
+        epoch_training_accuracy.append(train_accuracy)
+        epoch_test_accuracy.append(test_accuracy)
+
+# Plot Loss
+plt.figure()
+plt.plot(epoch_nums, epoch_loss)
+plt.plot(epoch_nums, epoch_validation_loss)
+plt.title('Training and Validation Loss')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.legend(['Training loss', 'Validation Loss'], loc='upper right')
+plt.show()
+
+
+# Plot Accuracy
+plt.figure()
+plt.plot(epoch_nums, epoch_training_accuracy)
+plt.plot(epoch_nums, epoch_test_accuracy)
+plt.title('Training and Validation Acuuracy')
+plt.xlabel('Epoch')
+plt.ylabel('Acuuracy')
+plt.legend(['Training Acuuracy', 'Validation Acuuracy'], loc='upper right')
+plt.show()
