@@ -3,3 +3,4 @@ Spectogram_images/*
 vehicle-audio-processing-model.keras
 .DS_Store
 vehicle-audio-processing-model.pth
+test_audio_mel_spectrogram/*
